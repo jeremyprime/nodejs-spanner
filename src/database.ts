@@ -119,6 +119,9 @@ import {
   craftRequestId,
   newAtomicCounter,
 } from './request_id_header';
+import {metrics} from '@opentelemetry/api';
+import {MeterProvider} from '@opentelemetry/sdk-metrics';
+import {MetricsTracerFactory} from './metrics/metrics-tracer-factory';
 
 export type GetDatabaseRolesCallback = RequestCallback<
   IDatabaseRole,
@@ -861,6 +864,15 @@ class Database extends common.GrpcServiceObject {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (this.parent as any).databases_.delete(key);
     this.pool_.close(callback!);
+    // Ensure metrics provider flushes current metrics
+    // TODO: Find a way to call this on system.exit that doesn't cause tests to fail
+    const meterProvider = metrics.getMeterProvider();
+    if (
+      meterProvider &&
+      typeof (meterProvider as MeterProvider).shutdown === 'function'
+    ) {
+      void (meterProvider as MeterProvider).shutdown();
+    }
   }
   /**
    * @typedef {array} CreateTransactionResponse
@@ -2897,6 +2909,12 @@ class Database extends common.GrpcServiceObject {
         ? (optionsOrCallback as TimestampBounds)
         : {};
 
+    // TODO: Refactor and apply to other parts of the code
+    const factory = MetricsTracerFactory.getInstance();
+    factory.setInstanceAttributes(this.formattedName_);
+    const tracer = factory.createMetricsTracer();
+    tracer.methodName = 'Database.run';
+
     return startTrace(
       'Database.run',
       {
@@ -2904,8 +2922,10 @@ class Database extends common.GrpcServiceObject {
         ...this._traceConfig,
       },
       span => {
+        tracer.recordOperationStart();
         this.runStream(query, options)
           .on('error', err => {
+            tracer.recordOperationCompletion();
             setSpanError(span, err);
             span.end();
             callback!(err as grpc.ServiceError, rows, stats, metadata);
@@ -2920,6 +2940,7 @@ class Database extends common.GrpcServiceObject {
             rows.push(row);
           })
           .on('end', () => {
+            tracer.recordOperationCompletion();
             span.end();
             callback!(null, rows, stats, metadata);
           });

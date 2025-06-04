@@ -94,6 +94,13 @@ import {
   injectRequestIDIntoError,
   nextSpannerClientId,
 } from './request_id_header';
+import {metrics} from '@opentelemetry/api';
+import {
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from '@opentelemetry/sdk-metrics';
+import {CloudMonitoringMetricsExporter} from './metrics/spanner-metrics-exporter';
+import {MetricsTracerFactory} from './metrics/metrics-tracer-factory';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const gcpApiConfig = require('./spanner_grpc_config.json');
@@ -399,6 +406,28 @@ class Spanner extends GrpcService {
     );
     ensureInitialContextManagerSet();
     this._nthClientId = nextSpannerClientId();
+
+    // Configure service metrics
+    // TODO: Update metrics factory to be enabled by default (and change env vars to disable)
+    if (process.env.SPANNER_ENABLE_BUILTIN_METRICS === 'true') {
+      const meterExporter = new CloudMonitoringMetricsExporter({
+        auth: this.auth,
+      });
+      const meterReader = new PeriodicExportingMetricReader({
+        exporter: meterExporter,
+        exportIntervalMillis: 60000,
+      });
+      const meterProvider = new MeterProvider({
+        readers: [meterReader],
+      });
+      metrics.setGlobalMeterProvider(meterProvider);
+      const gfeEnabled =
+        process.env.SPANNER_ENABLE_DIRECT_ACCESS_GRPC_BUILTIN_METRICS ===
+        'true';
+      MetricsTracerFactory.getInstance(true, gfeEnabled);
+    } else {
+      MetricsTracerFactory.getInstance(false, false);
+    }
   }
 
   /**

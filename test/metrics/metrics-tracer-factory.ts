@@ -13,28 +13,28 @@
 // limitations under the License.
 
 import {metrics, MeterProvider as ApiMeterProvider} from '@opentelemetry/api';
-import {
-  MeterProvider,
-  PeriodicExportingMetricReader,
-} from '@opentelemetry/sdk-metrics';
+import {MeterProvider} from '@opentelemetry/sdk-metrics';
 import * as assert from 'assert';
 import * as sinon from 'sinon';
 import * as Constants from '../../src/metrics/constants';
 import {MetricsTracerFactory} from '../../src/metrics/metrics-tracer-factory';
-import {CloudMonitoringMetricsExporter} from '../../src/metrics/spanner-metrics-exporter';
 
 describe('MetricsTracerFactory', () => {
-  let originalProvider: ApiMeterProvider;
+  let originalGlobalMeterProvider: ApiMeterProvider;
   let sandbox: sinon.SinonSandbox;
-  let mockExporter: CloudMonitoringMetricsExporter;
   let recordAttemptLatencyStub: sinon.SinonStub;
   let addAttemptCounterStub: sinon.SinonStub;
   let recordOperationLatencyStub: sinon.SinonStub;
   let addOperationCounterStub: sinon.SinonStub;
   let recordGfeLatencyStub: sinon.SinonStub;
   let addGfeConnectivityErrorCountStub: sinon.SinonStub;
+  let globalMeterProviderStub: sinon.SinonStub;
+  let meterProviderInstance: sinon.SinonStubbedInstance<MeterProvider>;
 
   before(() => {
+    originalGlobalMeterProvider = metrics.getMeterProvider();
+    MetricsTracerFactory.reset();
+
     sandbox = sinon.createSandbox();
 
     recordAttemptLatencyStub = sandbox.stub();
@@ -47,6 +47,13 @@ describe('MetricsTracerFactory', () => {
     const meterStub = {
       createHistogram: sandbox.stub(),
       createCounter: sandbox.stub(),
+      createGauge: sandbox.stub(),
+      createUpDownCounter: sandbox.stub(),
+      createObservableGauge: sandbox.stub(),
+      createObservableCounter: sandbox.stub(),
+      createObservableUpDownCounter: sandbox.stub(),
+      addBatchObservableCallback: sandbox.stub(),
+      removeBatchObservableCallback: sandbox.stub(),
     };
 
     // Stub the methods called by _createMetricInstruments
@@ -66,24 +73,17 @@ describe('MetricsTracerFactory', () => {
       .onThirdCall()
       .returns({add: addGfeConnectivityErrorCountStub});
 
-    sandbox.stub(MeterProvider.prototype, 'getMeter').returns(meterStub as any);
+    meterProviderInstance = sandbox.createStubInstance(MeterProvider);
+    meterProviderInstance.getMeter.returns(meterStub);
 
-    // Set the global metrics provider and related objects
-    originalProvider = metrics.getMeterProvider();
-    mockExporter = sandbox.createStubInstance(CloudMonitoringMetricsExporter);
-    const reader = new PeriodicExportingMetricReader({
-      exporter: mockExporter,
-      exportIntervalMillis: 60000,
-    });
-    const provider = new MeterProvider({
-      readers: [reader],
-    });
-    metrics.setGlobalMeterProvider(provider);
+    globalMeterProviderStub = sandbox
+      .stub(metrics, 'getMeterProvider')
+      .returns(meterProviderInstance);
   });
 
   after(() => {
     sandbox.restore();
-    metrics.setGlobalMeterProvider(originalProvider);
+    metrics.setGlobalMeterProvider(originalGlobalMeterProvider);
   });
 
   beforeEach(() => {

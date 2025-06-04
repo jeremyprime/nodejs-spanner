@@ -35,7 +35,7 @@ export class MetricsTracerFactory {
   public enabled: boolean;
   public gfeEnabled: boolean;
 
-  private constructor(enabled: boolean, gfeEnabled = false) {
+  private constructor(enabled, gfeEnabled) {
     this.enabled = enabled;
     this.gfeEnabled = gfeEnabled;
     this._createMetricInstruments();
@@ -55,7 +55,7 @@ export class MetricsTracerFactory {
     };
   }
 
-  public static getInstance(enabled: boolean, gfeEnabled = false) {
+  public static getInstance(enabled = false, gfeEnabled = false) {
     // Create a singleton instance, enabling/disabling metrics can only be done on the initial call
     if (MetricsTracerFactory._instance === null) {
       MetricsTracerFactory._instance = new MetricsTracerFactory(
@@ -64,6 +64,10 @@ export class MetricsTracerFactory {
       );
     }
     return MetricsTracerFactory._instance;
+  }
+
+  public static reset() {
+    MetricsTracerFactory._instance = null;
   }
 
   get instrumentAttemptLatency(): Histogram {
@@ -182,6 +186,19 @@ export class MetricsTracerFactory {
       Constants.METRIC_NAME_GFE_CONNECTIVITY_ERROR_COUNT,
       {unit: '1', description: 'GFE missing header count.'},
     );
+  }
+
+  /**
+   * Takes a formatted name and parses the project, instance, and database then sets on the
+   * factory.  If no value is found for a given attribute, an empty string is set.
+   */
+  public setInstanceAttributes(formattedName) {
+    const regex =
+      /projects\/(?<projectId>[^/]+)\/instances\/(?<instanceId>[^/]+)(?:\/databases\/(?<databaseId>[^/]+))?/;
+    const match = formattedName.match(regex);
+    this.project = match?.groups?.projectId || '';
+    this.instance = match?.groups?.instanceId || '';
+    this.database = match?.groups?.databaseId || '';
   }
 
   /**

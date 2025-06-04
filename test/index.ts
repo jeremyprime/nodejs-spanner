@@ -116,6 +116,12 @@ const fakeV1: any = {
 function fakeGoogleAuth() {
   return {
     calledWith_: arguments,
+    getProjectId: function () {
+      return {
+        calledWith_: arguments,
+        catch: util.noop,
+      };
+    },
   };
 }
 
